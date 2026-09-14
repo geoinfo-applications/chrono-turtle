@@ -5,8 +5,8 @@ Git-like version control for PostgreSQL tables, written as a pure SQL extension.
 ![ChronoTurtle logo](./chronoturtle.png)
 
 > **Status: unmaintained.** GEOINFO Applications AG built ChronoTurtle as a feasibility study and decided not to
-> use it. It is published as-is, without support, and is not developed further. The repository is archived: issues
-> and pull requests are not handled. Fork it if you want to build on it.
+> use it. It is published as-is, without support, and is not developed further. Issues and pull requests are not
+> handled. Fork it if you want to build on it.
 
 ## Overview
 
