@@ -1,0 +1,7 @@
+# Guard rail for the LF flip: .gitattributes decides what git stores, this stops
+# editors from writing CRLF back into the working tree.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf

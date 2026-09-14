@@ -1,0 +1,5 @@
+# chronoturtle extension
+comment = 'SQL-based Git: Version control for PostgreSQL tables'
+default_version = '0.1.0'
+relocatable = false
+schema = chronoturtle

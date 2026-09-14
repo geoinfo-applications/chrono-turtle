@@ -1,0 +1,119 @@
+-- Test 00: Extension initialization
+-- Tests basic extension installation and schema creation
+CREATE EXTENSION chronoturtle;
+-- Verify schemas exist
+SELECT schema_name FROM information_schema.schemata
+WHERE schema_name IN ('chronoturtle', '_vie', '_backing', '_chronoturtle_internal', '_vie_constraint', '_vie_cor', '_vie_migration', '_vie_trigger')
+ORDER BY schema_name;
+      schema_name       
+------------------------
+ _backing
+ _chronoturtle_internal
+ _vie
+ _vie_constraint
+ _vie_migration
+ _vie_trigger
+ chronoturtle
+(7 rows)
+
+-- Verify _vie tables exist
+SELECT table_name FROM information_schema.tables
+WHERE table_schema = '_vie'
+ORDER BY table_name;
+     table_name      
+---------------------
+ branch
+ commit
+ commit_tree
+ constraint_registry
+ table_registry
+ tree
+(6 rows)
+
+-- Check _vie.branch table and columns
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = '_vie' AND table_name = 'branch'
+ORDER BY ordinal_position;
+   column_name    |        data_type         
+------------------+--------------------------
+ name             | text
+ head_commit_hash | bytea
+ created_at       | timestamp with time zone
+ updated_at       | timestamp with time zone
+(4 rows)
+
+-- Check _vie.commit table and columns
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = '_vie' AND table_name = 'commit'
+ORDER BY ordinal_position;
+ column_name |        data_type         
+-------------+--------------------------
+ hash        | bytea
+ parent_hash | bytea
+ author      | text
+ message     | text
+ created_at  | timestamp with time zone
+(5 rows)
+
+-- Check _vie.tree table and columns
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = '_vie' AND table_name = 'tree'
+ORDER BY ordinal_position;
+ column_name  | data_type 
+--------------+-----------
+ hash         | bytea
+ table_schema | text
+ table_name   | text
+ original_pks | jsonb
+ row_hash     | bytea
+(5 rows)
+
+-- Check _vie.commit_tree table and columns
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = '_vie' AND table_name = 'commit_tree'
+ORDER BY ordinal_position;
+ column_name | data_type 
+-------------+-----------
+ commit_hash | bytea
+ tree_hash   | bytea
+(2 rows)
+
+-- Check _vie.table_registry table and columns
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = '_vie' AND table_name = 'table_registry'
+ORDER BY ordinal_position;
+    column_name     |        data_type         
+--------------------+--------------------------
+ table_id           | integer
+ backing_table_name | text
+ view_name          | text
+ view_schema        | text
+ created_at         | timestamp with time zone
+(5 rows)
+
+-- Check _vie.constraint_registry table and columns
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = '_vie' AND table_name = 'constraint_registry'
+ORDER BY ordinal_position;
+    column_name     |  data_type   
+--------------------+--------------
+ constraint_id      | integer
+ backing_table_name | text
+ constraint_name    | text
+ constraint_type    | USER-DEFINED
+ constraint_columns | ARRAY
+(5 rows)
+
+-- Verify default branch exists
+SELECT name FROM _vie.branch WHERE name = 'main';
+ name 
+------
+ main
+(1 row)
+

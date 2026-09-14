@@ -1,0 +1,115 @@
+SET search_path TO chronoturtle, public;
+\set VERBOSITY terse
+CREATE SCHEMA reserved;
+CREATE TABLE reserved."user"
+(
+    id   SERIAL PRIMARY KEY,
+    name TEXT NOT NULL
+);
+CREATE TABLE reserved."order"
+(
+    id      SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES reserved."user" (id),
+    note    TEXT
+);
+INSERT INTO reserved."user" (name)
+VALUES ('alice');
+INSERT INTO reserved."order" (user_id, note)
+VALUES (1, 'first order');
+SELECT migrate_to_vie('reserved.user', 'reserved.order');
+ migrate_to_vie 
+----------------
+ 
+(1 row)
+
+UPDATE reserved."user"
+SET name = 'alice renamed'
+WHERE id = 1;
+INSERT INTO reserved."user" (name)
+VALUES ('bob');
+INSERT INTO reserved."order" (user_id, note)
+VALUES (2, 'second order');
+DELETE
+FROM reserved."order"
+WHERE id = 1;
+SELECT id, name
+FROM reserved."user"
+ORDER BY id;
+ id |     name      
+----+---------------
+  1 | alice renamed
+  2 | bob
+(2 rows)
+
+SELECT id, user_id, note
+FROM reserved."order"
+ORDER BY id;
+ id | user_id |     note     
+----+---------+--------------
+  2 |       2 | second order
+(1 row)
+
+SELECT set_current_branch('feature/reserved');
+ set_current_branch 
+--------------------
+ 
+(1 row)
+
+INSERT INTO reserved."user" (name)
+VALUES ('carol');
+SELECT set_current_branch('main');
+ set_current_branch 
+--------------------
+ 
+(1 row)
+
+SELECT id, name
+FROM reserved."user"
+ORDER BY id;
+ id |     name      
+----+---------------
+  1 | alice renamed
+  2 | bob
+(2 rows)
+
+SELECT add_unique_constraint('reserved.user', 'name');
+ add_unique_constraint 
+-----------------------
+ name_key
+(1 row)
+
+INSERT INTO reserved."user" (name)
+VALUES ('bob');
+ERROR:  duplicate key value violates unique constraint "name_key" for table reserved.user: (name = bob)
+SELECT drop_unique_constraint('reserved.user', 'name_key');
+ drop_unique_constraint 
+------------------------
+ 
+(1 row)
+
+INSERT INTO reserved."user" (name)
+VALUES ('bob');
+SELECT drop_vie_table('reserved.order', true);
+ drop_vie_table 
+----------------
+ 
+(1 row)
+
+SELECT drop_vie_table('reserved.user');
+ drop_vie_table 
+----------------
+ 
+(1 row)
+
+SELECT id, name
+FROM reserved."user"
+ORDER BY id, name;
+ id |     name      
+----+---------------
+  1 | alice
+  1 | alice renamed
+  2 | bob
+  3 | carol
+  4 | bob
+(5 rows)
+

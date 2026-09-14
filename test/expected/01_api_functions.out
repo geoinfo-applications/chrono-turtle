@@ -1,0 +1,499 @@
+-- =========================================================
+-- Test 01: API functions
+-- =========================================================
+-- Set search path to include chronoturtle schema
+SET search_path TO chronoturtle, public;
+CREATE SCHEMA animal;
+CREATE SCHEMA human;
+-- =========================================================
+-- VIE
+-- =========================================================
+-- throws if the table does not exist
+SELECT migrate_to_vie('animal.dog');
+ERROR:  Table animal.dog does not exist
+CONTEXT:  PL/pgSQL function _vie_migration.assert_table_is_convertable_to_vie(text,text) line 7 at RAISE
+SQL statement "SELECT _vie_migration.assert_table_is_convertable_to_vie(l_schema, l_table)"
+PL/pgSQL function migrate_to_vie(text[]) line 25 at PERFORM
+-- setup table
+CREATE TABLE human.dog_owner
+(
+    id    SERIAL PRIMARY KEY,
+    birth DATE NOT NULL,
+    name  TEXT NOT NULL
+);
+CREATE TABLE animal.dog
+(
+    id           SERIAL PRIMARY KEY,
+    birth        DATE NOT NULL,
+    name         TEXT NOT NULL,
+    race         TEXT NOT NULL,
+    dog_owner_id INT  NOT NULL REFERENCES human.dog_owner (id)
+);
+-- throws without schema
+SELECT migrate_to_vie('dog');
+ERROR:  No schema for table dog defined
+CONTEXT:  PL/pgSQL function _chronoturtle_internal.get_schema_and_table_name(text) line 4 at RAISE
+SQL statement "SELECT schema_name, table_name                        FROM _chronoturtle_internal.get_schema_and_table_name(l_table_name)"
+PL/pgSQL function migrate_to_vie(text[]) line 23 at SQL statement
+-- throws because there is not backing table
+SELECT show_backing_table_name('animal.dog');
+ERROR:  No backing table found for animal.dog
+CONTEXT:  PL/pgSQL function show_backing_table_name(text) line 16 at RAISE
+-- migrates
+SELECT migrate_to_vie('human.dog_owner', 'animal.dog');
+ migrate_to_vie 
+----------------
+ 
+(1 row)
+
+-- shows the backing table name
+SELECT show_backing_table_name('animal.dog');
+ show_backing_table_name 
+-------------------------
+ animal__dog
+(1 row)
+
+SELECT show_backing_table_name('human.dog_owner');
+ show_backing_table_name 
+-------------------------
+ human__dog_owner
+(1 row)
+
+-- shows the view name
+SELECT show_view_name(show_backing_table_name('animal.dog'));
+ show_view_name 
+----------------
+ (animal,dog)
+(1 row)
+
+SELECT show_view_name(show_backing_table_name('human.dog_owner'));
+  show_view_name   
+-------------------
+ (human,dog_owner)
+(1 row)
+
+-- check view
+SELECT COUNT(*)
+FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind = 'v'
+  AND n.nspname IN ('human', 'animal')
+  AND c.relname IN ('dog', 'dog_owner');
+ count 
+-------
+     2
+(1 row)
+
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'animal'
+  AND table_name = 'dog'
+ORDER BY ordinal_position;
+ column_name  | data_type 
+--------------+-----------
+ id           | integer
+ birth        | date
+ name         | text
+ race         | text
+ dog_owner_id | integer
+(5 rows)
+
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'human'
+  AND table_name = 'dog_owner'
+ORDER BY ordinal_position;
+ column_name | data_type 
+-------------+-----------
+ id          | integer
+ birth       | date
+ name        | text
+(3 rows)
+
+-- check backing tables
+SELECT COUNT(*)
+FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind = 'r'
+  AND n.nspname = '_backing'
+  AND c.relname IN (show_backing_table_name('animal.dog'), show_backing_table_name('human.dog_owner'));
+ count 
+-------
+     2
+(1 row)
+
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = '_backing'
+  AND table_name = show_backing_table_name('animal.dog')
+ORDER BY ordinal_position;
+      column_name      | data_type 
+-----------------------+-----------
+ id                    | integer
+ birth                 | date
+ name                  | text
+ race                  | text
+ dog_owner_id          | integer
+ row_hash              | bytea
+ human__dog_owner_hash | bytea
+(7 rows)
+
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = '_backing'
+  AND table_name = show_backing_table_name('human.dog_owner')
+ORDER BY ordinal_position;
+ column_name | data_type 
+-------------+-----------
+ id          | integer
+ birth       | date
+ name        | text
+ row_hash    | bytea
+(4 rows)
+
+-- =========================================================
+-- Author
+-- =========================================================
+SELECT set_commit_author('bob@example.com');
+ set_commit_author 
+-------------------
+ 
+(1 row)
+
+-- =========================================================
+-- Branch
+-- =========================================================
+SELECT get_current_branch();
+ get_current_branch 
+--------------------
+ main
+(1 row)
+
+SELECT set_current_branch('feature/test1');
+ set_current_branch 
+--------------------
+ 
+(1 row)
+
+SELECT get_current_branch();
+ get_current_branch 
+--------------------
+ feature/test1
+(1 row)
+
+SELECT ensure_branch_exists('feature/test2');
+ ensure_branch_exists 
+----------------------
+ 
+(1 row)
+
+SELECT get_current_branch();
+ get_current_branch 
+--------------------
+ feature/test1
+(1 row)
+
+-- Verify branches exist
+SELECT array_agg(name ORDER BY name) AS branches_with_same_hash
+FROM _vie.branch
+GROUP BY head_commit_hash
+ORDER BY 1;
+      branches_with_same_hash       
+------------------------------------
+ {feature/test1,feature/test2,main}
+(1 row)
+
+-- Check creating from parent hash
+BEGIN;
+INSERT INTO public.dog_owner(id, birth, name)
+VALUES (1, DATE('1990-11-21 09:31'), 'Jimmy');
+ERROR:  relation "public.dog_owner" does not exist
+LINE 1: INSERT INTO public.dog_owner(id, birth, name)
+                    ^
+INSERT INTO public.dog(id, birth, name, race, dog_owner_id)
+VALUES (2, DATE('2025-11-21 09:31'), 'Henry', 'Corgy', 1);
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+END;
+SELECT array_agg(name ORDER BY name) AS branches_with_same_hash
+FROM _vie.branch
+GROUP BY head_commit_hash
+ORDER BY 1;
+      branches_with_same_hash       
+------------------------------------
+ {feature/test1,feature/test2,main}
+(1 row)
+
+SELECT set_current_branch('feature/test3', 'feature/test1');
+ set_current_branch 
+--------------------
+ 
+(1 row)
+
+SELECT array_agg(name ORDER BY name) AS branches_with_same_hash
+FROM _vie.branch
+GROUP BY head_commit_hash
+ORDER BY 1;
+             branches_with_same_hash              
+--------------------------------------------------
+ {feature/test1,feature/test2,feature/test3,main}
+(1 row)
+
+-- =========================================================
+-- Migrate to VIE by schema
+-- =========================================================
+-- setup table
+CREATE TABLE human.cat_owner
+(
+    id    SERIAL PRIMARY KEY,
+    birth DATE NOT NULL,
+    name  TEXT NOT NULL
+);
+CREATE TABLE animal.cat
+(
+    id           SERIAL PRIMARY KEY,
+    birth        DATE    NOT NULL,
+    name         TEXT    NOT NULL,
+    race         TEXT    NOT NULL,
+    lives_left   INTEGER NOT NULL DEFAULT 7,
+    cat_owner_id INT     NOT NULL REFERENCES human.cat_owner (id)
+);
+-- migrates
+SELECT migrate_schemas_to_vie('human', 'animal');
+ migrate_schemas_to_vie 
+------------------------
+ 
+(1 row)
+
+-- shows the backing table name
+SELECT show_backing_table_name('animal.cat');
+ show_backing_table_name 
+-------------------------
+ animal__cat
+(1 row)
+
+SELECT show_backing_table_name('human.cat_owner');
+ show_backing_table_name 
+-------------------------
+ human__cat_owner
+(1 row)
+
+-- shows the view name
+SELECT show_view_name(show_backing_table_name('animal.cat'));
+ show_view_name 
+----------------
+ (animal,cat)
+(1 row)
+
+SELECT show_view_name(show_backing_table_name('human.cat_owner'));
+  show_view_name   
+-------------------
+ (human,cat_owner)
+(1 row)
+
+-- check view
+SELECT COUNT(*)
+FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind = 'v'
+  AND n.nspname IN ('human', 'animal')
+  AND c.relname IN ('cat', 'cat_owner');
+ count 
+-------
+     2
+(1 row)
+
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'animal'
+  AND table_name = 'cat'
+ORDER BY ordinal_position;
+ column_name  | data_type 
+--------------+-----------
+ id           | integer
+ birth        | date
+ name         | text
+ race         | text
+ lives_left   | integer
+ cat_owner_id | integer
+(6 rows)
+
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'human'
+  AND table_name = 'cat_owner'
+ORDER BY ordinal_position;
+ column_name | data_type 
+-------------+-----------
+ id          | integer
+ birth       | date
+ name        | text
+(3 rows)
+
+-- check backing tables
+SELECT COUNT(*)
+FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind = 'r'
+  AND n.nspname = '_backing'
+  AND c.relname IN (show_backing_table_name('animal.cat'), show_backing_table_name('human.cat_owner'));
+ count 
+-------
+     2
+(1 row)
+
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = '_backing'
+  AND table_name = show_backing_table_name('animal.cat')
+ORDER BY ordinal_position;
+      column_name      | data_type 
+-----------------------+-----------
+ id                    | integer
+ birth                 | date
+ name                  | text
+ race                  | text
+ lives_left            | integer
+ cat_owner_id          | integer
+ row_hash              | bytea
+ human__cat_owner_hash | bytea
+(8 rows)
+
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = '_backing'
+  AND table_name = show_backing_table_name('human.cat_owner')
+ORDER BY ordinal_position;
+ column_name | data_type 
+-------------+-----------
+ id          | integer
+ birth       | date
+ name        | text
+ row_hash    | bytea
+(4 rows)
+
+-- =========================================================
+-- Check and modify constraints
+-- =========================================================
+SELECT * FROM get_constraints('animal.cat') WHERE constraint_type IN ('PRIMARY KEY', 'UNIQUE', 'FOREIGN KEY');
+ constraint_catalog | constraint_schema |    constraint_name    |   table_catalog    | table_schema | table_name  | constraint_type | is_deferrable | initially_deferred | enforced | nulls_distinct 
+--------------------+-------------------+-----------------------+--------------------+--------------+-------------+-----------------+---------------+--------------------+----------+----------------
+ contrib_regression | _backing          | animal__cat_pkey      | contrib_regression | _backing     | animal__cat | PRIMARY KEY     | NO            | NO                 | YES      | 
+ contrib_regression | _backing          | cat_cat_owner_id_fkey | contrib_regression | _backing     | animal__cat | FOREIGN KEY     | NO            | NO                 | YES      | 
+(2 rows)
+
+SELECT * FROM _vie.constraint_registry;
+ constraint_id | backing_table_name | constraint_name | constraint_type | constraint_columns 
+---------------+--------------------+-----------------+-----------------+--------------------
+             1 | human__dog_owner   | dog_owner_pkey  | PRIMARY KEY     | {id}
+             2 | animal__dog        | dog_pkey        | PRIMARY KEY     | {id}
+             3 | human__cat_owner   | cat_owner_pkey  | PRIMARY KEY     | {id}
+             4 | animal__cat        | cat_pkey        | PRIMARY KEY     | {id}
+(4 rows)
+
+SELECT add_unique_constraint('animal.cat', 'name', 'race');
+ add_unique_constraint 
+-----------------------
+ name_race_key
+(1 row)
+
+SELECT * FROM get_constraints('animal.cat') WHERE constraint_type IN ('PRIMARY KEY', 'UNIQUE', 'FOREIGN KEY');
+ constraint_catalog | constraint_schema |    constraint_name    |   table_catalog    | table_schema | table_name  | constraint_type | is_deferrable | initially_deferred | enforced | nulls_distinct 
+--------------------+-------------------+-----------------------+--------------------+--------------+-------------+-----------------+---------------+--------------------+----------+----------------
+ contrib_regression | _backing          | animal__cat_pkey      | contrib_regression | _backing     | animal__cat | PRIMARY KEY     | NO            | NO                 | YES      | 
+ contrib_regression | _backing          | cat_cat_owner_id_fkey | contrib_regression | _backing     | animal__cat | FOREIGN KEY     | NO            | NO                 | YES      | 
+ contrib_regression | _backing          | name_race_key         | contrib_regression | _backing     | animal__cat | UNIQUE          | NO            | NO                 | YES      | YES
+(3 rows)
+
+SELECT * FROM _vie.constraint_registry;
+ constraint_id | backing_table_name | constraint_name | constraint_type | constraint_columns 
+---------------+--------------------+-----------------+-----------------+--------------------
+             1 | human__dog_owner   | dog_owner_pkey  | PRIMARY KEY     | {id}
+             2 | animal__dog        | dog_pkey        | PRIMARY KEY     | {id}
+             3 | human__cat_owner   | cat_owner_pkey  | PRIMARY KEY     | {id}
+             4 | animal__cat        | cat_pkey        | PRIMARY KEY     | {id}
+             5 | animal__cat        | name_race_key   | UNIQUE          | {name,race}
+(5 rows)
+
+SELECT drop_unique_constraint('animal.cat', 'name_race_key');
+ drop_unique_constraint 
+------------------------
+ 
+(1 row)
+
+SELECT * FROM get_constraints('animal.cat') WHERE constraint_type IN ('PRIMARY KEY', 'UNIQUE', 'FOREIGN KEY');
+ constraint_catalog | constraint_schema |    constraint_name    |   table_catalog    | table_schema | table_name  | constraint_type | is_deferrable | initially_deferred | enforced | nulls_distinct 
+--------------------+-------------------+-----------------------+--------------------+--------------+-------------+-----------------+---------------+--------------------+----------+----------------
+ contrib_regression | _backing          | animal__cat_pkey      | contrib_regression | _backing     | animal__cat | PRIMARY KEY     | NO            | NO                 | YES      | 
+ contrib_regression | _backing          | cat_cat_owner_id_fkey | contrib_regression | _backing     | animal__cat | FOREIGN KEY     | NO            | NO                 | YES      | 
+(2 rows)
+
+SELECT * FROM _vie.constraint_registry;
+ constraint_id | backing_table_name | constraint_name | constraint_type | constraint_columns 
+---------------+--------------------+-----------------+-----------------+--------------------
+             1 | human__dog_owner   | dog_owner_pkey  | PRIMARY KEY     | {id}
+             2 | animal__dog        | dog_pkey        | PRIMARY KEY     | {id}
+             3 | human__cat_owner   | cat_owner_pkey  | PRIMARY KEY     | {id}
+             4 | animal__cat        | cat_pkey        | PRIMARY KEY     | {id}
+(4 rows)
+
+-- =========================================================
+-- Drop VIE
+-- =========================================================
+SELECT drop_vie_table('animal.dog', true);
+ drop_vie_table 
+----------------
+ 
+(1 row)
+
+SELECT drop_vie_table('human.dog_owner', true);
+ drop_vie_table 
+----------------
+ 
+(1 row)
+
+SELECT drop_vie_table('animal.cat', false);
+ drop_vie_table 
+----------------
+ 
+(1 row)
+
+SELECT drop_vie_table('human.cat_owner', false);
+ drop_vie_table 
+----------------
+ 
+(1 row)
+
+SELECT *
+FROM animal.dog;
+ERROR:  relation "animal.dog" does not exist
+LINE 2: FROM animal.dog;
+             ^
+SELECT *
+FROM human.dog_owner;
+ERROR:  relation "human.dog_owner" does not exist
+LINE 2: FROM human.dog_owner;
+             ^
+SELECT *
+FROM animal.cat;
+ id | birth | name | race | lives_left | cat_owner_id | row_hash | human__cat_owner_hash 
+----+-------+------+------+------------+--------------+----------+-----------------------
+(0 rows)
+
+SELECT *
+FROM human.cat_owner;
+ id | birth | name | row_hash 
+----+-------+------+----------
+(0 rows)
+
+SELECT COUNT(*)
+FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind = 'r'
+  AND n.nspname = '_backing'
+  AND c.relname IN (show_backing_table_name('animal.dog'), show_backing_table_name('human.dog_owner'), show_backing_table_name('animal.cat'),
+                    show_backing_table_name('human.cat_owner'));
+ count 
+-------
+     0
+(1 row)
+
